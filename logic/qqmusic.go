@@ -94,8 +94,14 @@ func fetchPlaylistData(tid int) ([]byte, error) {
 
 	// 获取歌曲总数
 	totalSongs := basicResp.Req0.Data.Dirinfo.Songnum
-	if totalSongs <= maxSongsPerPage {
-		// 如果歌曲数量不超过单页上限，直接返回基本信息
+
+	// Some QQ responses report the total song count but only include a
+	// limited number of items (e.g. 30) in the basic response. In that case
+	// we should still paginate to fetch the remaining songs. Only return
+	// the basic info early if the basic response actually contains all
+	// songs.
+	if totalSongs <= maxSongsPerPage && len(basicResp.Req0.Data.Songlist) == totalSongs {
+		// 如果歌曲数量不超过单页上限并且基本响应已包含全部歌曲，直接返回基本信息
 		return basicInfo, nil
 	}
 
@@ -109,8 +115,15 @@ func fetchPlaylistData(tid int) ([]byte, error) {
 		totalSongs = maxTotalSongs
 	}
 
+	// Determine page size from the basic response. Some QQ endpoints return
+	// a smaller number of songs (e.g. 30) per page even when songnum is larger.
+	perPage := len(basicResp.Req0.Data.Songlist)
+	if perPage <= 0 {
+		perPage = maxSongsPerPage
+	}
+
 	// 计算需要的页数
-	pageCount := (totalSongs + maxSongsPerPage - 1) / maxSongsPerPage
+	pageCount := (totalSongs + perPage - 1) / perPage
 
 	// 创建一个新的响应对象，用于合并所有页的数据
 	mergedResp := models.QQMusicResp{
@@ -159,8 +172,8 @@ func fetchPlaylistData(tid int) ([]byte, error) {
 
 	// 获取剩余页的数据
 	for page := 1; page < pageCount; page++ {
-		songBegin := page * maxSongsPerPage
-		songNum := maxSongsPerPage
+		songBegin := page * perPage
+		songNum := perPage
 		if songBegin+songNum > totalSongs {
 			songNum = totalSongs - songBegin
 		}
